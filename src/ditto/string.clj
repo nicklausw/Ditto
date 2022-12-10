@@ -1,4 +1,4 @@
-(ns robbie.string
+(ns ditto.string
   (:gen-class) 
   (:require [clojure.string :as str]))
 

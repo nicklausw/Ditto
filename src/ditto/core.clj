@@ -1,4 +1,4 @@
-(ns robbie.core
+(ns ditto.core
   (:gen-class)
   (:import [java.time Instant])
   (:require [chime.core :as chime]
@@ -11,7 +11,7 @@
             [discljord.events :refer [message-pump!]]
             [discljord.formatting :refer [mention-user]]
             [discljord.messaging :as discord-rest]
-            [robbie.string :refer [trim-left trim-newlines]]))
+            [ditto.string :refer [trim-left trim-newlines]]))
 
 
 (def state (atom nil))
