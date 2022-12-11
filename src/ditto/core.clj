@@ -15,11 +15,13 @@
             [ditto.string :refer [trim-left trim-newlines]]))
 
 ; you can be in ditto mode or preset mode
-; where bot name is in name.txt
-; personality is in personality.txt
-; and command for generation, like
-; rob for /rob used in place of /gen,
-; is kept in generation-command.txt.
+; where preset data is in preset-config.json
+; example:
+;{
+;  "name": "Robbie",
+;  "personality": "Robbie is a person.",
+;  "command": "rob"
+;}
 (def mode (atom nil))
 (def preset-name (atom ""))
 (def preset-personality (atom ""))
@@ -214,10 +216,11 @@
   (case (first args)
     "ditto" (reset! mode :ditto)
     "preset" (do
-               (reset! preset-name (slurp "name.txt"))
-               (reset! preset-personality (slurp "personality.txt"))
-               (reset! generation-command (slurp "generation-command.txt"))
-               (reset! mode :preset))
+               (let [config (cheshire/parse-string (slurp "preset-config.json") true)]
+                 (reset! preset-name (:name config))
+                 (reset! preset-personality (:personality config))
+                 (reset! generation-command (:command config))
+                 (reset! mode :preset)))
     (do
       (println "args: [ditto/preset] [discord token]")
       (System/exit 1)))

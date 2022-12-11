@@ -6,11 +6,15 @@ Discord bot that lets you make any personality you'd like out of GPT-3.
 lein run -- [ditto/preset] [discord token]
 ```
 `ditto` mode works as you'd expect it.
-`preset` mode loads three things from files:
-* Bot name from `name.txt`
-* Bot personality from `personality.txt`
-* Bot generation command in replacement of `/gen` (without the forward slash) in `generation-command.txt`
-These things cannot be changed; `/botname` and `/personality` are disabled in this mode.
+`preset` mode loads `preset-config.json` which should look like this:
+```json
+{
+  "name": "Robbie",
+  "personality": "Robbie is a person.",
+  "command": "rob"
+}
+```
+These things cannot be changed; `/botname` and `/personality` are disabled in this mode. command replaces `/gen` (in this case, it is now `/rob`.)
 
 ## Commands
 * `/gen [response]` - get a response from the bot via OpenAI.
