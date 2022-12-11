@@ -42,7 +42,7 @@
    { guild-id, personality, name }"
   [guild-id]
   (let [empty-if-nil (fn [name] (if (nil? name) {:guild-id guild-id :personality "" :name "Ditto"} name))]
-    (->> (some #(when (= (:guild-id %) guild-id) %) @personalities)
+    (-> (some #(when (= (:guild-id %) guild-id) %) @personalities)
          empty-if-nil)))
 
 (defn set-bot-prompt
@@ -76,7 +76,7 @@
 
 (defn append-new-message
   [old-messages new-message-user new-message-bot user-nickname bot-nickname]
-  (let [new-list (into old-messages [(str user-nickname ":" new-message-user) (str bot-nickname ":" new-message-bot)])]
+  (let [new-list (into old-messages [(str user-nickname ": " new-message-user) (str bot-nickname ": " new-message-bot)])]
     (if (> (count new-list) 6)
       (-> new-list
           rest
@@ -125,16 +125,19 @@
 
 (defn get-openai-response
   [s messages user-nickname bot-nickname personality]
-  (println "sending prompt " (str personality "\n" (messages-to-prompts messages) user-nickname ":" s "\n" bot-nickname ": "))
-  (client/post
-   "https://api.openai.com/v1/completions"
-   {:headers {"Authorization" (str "Bearer " (System/getenv "OPENAI_TOKEN"))}
-    :content-type :json
-    :form-params
-    {:model "text-davinci-003" 
-     :prompt (str personality "\n" (messages-to-prompts messages) user-nickname ":" s "\n" bot-nickname ": ") 
-     :temperature 0 
-     :max_tokens 1000}}))
+  (let [prompt (str personality "\n" (messages-to-prompts messages) user-nickname ": " s "\n" bot-nickname ": ")]
+    (println "sending prompt " prompt)
+    (client/post
+     "https://api.openai.com/v1/completions"
+     {:headers {"Authorization" (str "Bearer " (System/getenv "OPENAI_TOKEN"))}
+      :content-type :json
+      :form-params
+      {:model "text-davinci-003"
+       :prompt prompt
+       :temperature 0.9
+       :presence_penalty 0.5
+       :frequency_penalty 0.5
+       :max_tokens 1000}})))
 
 (def error-message
   "[The OpenAI server sent back an error. Please try again in a minute; the server may be busy.]")
@@ -152,8 +155,7 @@
 (defmulti handle-event (fn [type _data] type))
 
 (defmethod handle-event :message-create
-  [_ {:keys [guild-id channel-id author content] :as _data}] 
-  (println "got input: " content)
+  [_ {:keys [guild-id channel-id author content] :as _data}]
   (cond
     (str/starts-with? content "/gen")
     (let [trimmed-content (trim-left content "/gen")
