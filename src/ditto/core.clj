@@ -14,6 +14,17 @@
             [discljord.messaging :as discord-rest]
             [ditto.string :refer [trim-left trim-newlines]]))
 
+; you can be in ditto mode or preset mode
+; where bot name is in name.txt
+; personality is in personality.txt
+; and command for generation, like
+; rob for /rob used in place of /gen,
+; is kept in generation-command.txt.
+(def mode (atom nil))
+(def preset-name (atom ""))
+(def preset-personality (atom ""))
+
+(def generation-command (atom "gen"))
 
 (def state (atom nil))
 
@@ -31,17 +42,21 @@
 
 (defn get-bot-name
   [guild-id]
-  (-> @memory
-      ((keyword guild-id))
-      :bot_name
-      (or "Ditto")))
+  (case @mode
+    :ditto (-> @memory
+               ((keyword guild-id))
+               :bot_name
+               (or "Ditto"))
+    :preset @preset-name))
 
 (defn get-bot-personality
   [guild-id]
-  (-> @memory
-      ((keyword guild-id))
-      :personality
-      (or "")))
+  (case @mode
+    :ditto (-> @memory 
+               ((keyword guild-id)) 
+               :personality 
+               (or ""))
+    :preset @preset-personality))
 
 (defn get-user-nickname
   [guild-id user-id]
@@ -120,11 +135,11 @@
 (defmethod handle-event :message-create
   [_ {:keys [guild-id channel-id author content] :as _data}]
   (cond
-    (str/starts-with? content "/gen")
+    (str/starts-with? content (str "/" @generation-command))
     (do
       (println "generating response for message...")
       (discord-rest/trigger-typing-indicator! (:rest @state) channel-id) 
-      (let [trimmed-content (trim-left content "/gen") 
+      (let [trimmed-content (trim-left content (str "/" @generation-command)) 
             bot-nickname (get-bot-name guild-id) 
             personality (get-bot-personality guild-id) 
             user-nickname (get-user-nickname guild-id (:id author)) 
@@ -144,7 +159,7 @@
       (discord-rest/create-message! (:rest @state) channel-id
                                     :content (str (mention-user author) " Set name to " trimmed-content ".")))
 
-    (str/starts-with? content "/botname ")
+    (and (str/starts-with? content "/botname ") (= @mode :ditto))
     (let [trimmed-content (trim-left content "/botname ")]
       (println "setting bot nickname to" trimmed-content "...")
       (set-bot-name guild-id trimmed-content)
@@ -152,7 +167,7 @@
       (discord-rest/create-message! (:rest @state) channel-id
                                     :content (str (mention-user author) " My name is now " trimmed-content ".")))
 
-    (str/starts-with? content "/personality ")
+    (and (str/starts-with? content "/personality ") (= @mode :ditto))
     (let [trimmed-content (trim-left content "/personality ")]
       (println "setting bot personality to" trimmed-content "...")
       (set-bot-prompt guild-id trimmed-content)
@@ -195,7 +210,18 @@
   (reset-timer))
 
 (defn -main [& args]
-  (reset! state (start-bot! (System/getenv "DITTO_TOKEN") :guild-messages))
+  (assert (= (count args) 2) "args: [ditto/preset] [discord token]")
+  (case (first args)
+    "ditto" (reset! mode :ditto)
+    "preset" (do
+               (reset! preset-name (slurp "name.txt"))
+               (reset! preset-personality (slurp "personality.txt"))
+               (reset! generation-command (slurp "generation-command.txt"))
+               (reset! mode :preset))
+    (do
+      (println "args: [ditto/preset] [discord token]")
+      (System/exit 1)))
+  (reset! state (start-bot! (second args) :guild-messages))
   (reset! bot-id (:id @(discord-rest/get-current-user! (:rest @state))))
   (reset-timer)
   (try
