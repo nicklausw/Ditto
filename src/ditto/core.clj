@@ -121,16 +121,17 @@
   [_ {:keys [guild-id channel-id author content] :as _data}]
   (cond
     (str/starts-with? content "/gen")
-    (let [trimmed-content (trim-left content "/gen")
-          bot-nickname (get-bot-name guild-id)
-          personality (get-bot-personality guild-id)
-          user-nickname (get-user-nickname guild-id (:id author))]
+    (do
       (println "generating response for message...")
-      (discord-rest/trigger-typing-indicator! (:rest @state) channel-id)
-      (let [messages (get-messages guild-id channel-id)
+      (discord-rest/trigger-typing-indicator! (:rest @state) channel-id) 
+      (let [trimmed-content (trim-left content "/gen") 
+            bot-nickname (get-bot-name guild-id) 
+            personality (get-bot-personality guild-id) 
+            user-nickname (get-user-nickname guild-id (:id author)) 
+            messages (get-messages guild-id channel-id)
             bot-content (get-response trimmed-content messages user-nickname bot-nickname personality)
-            new-messages (append-new-message messages trimmed-content bot-content user-nickname bot-nickname)]
-        (discord-rest/create-message! (:rest @state) channel-id
+            new-messages (append-new-message messages trimmed-content bot-content user-nickname bot-nickname)] 
+        (discord-rest/create-message! (:rest @state) channel-id 
                                       :content (str (mention-user author) " " bot-content))
         (reset! memory (update-in @memory [(keyword guild-id) (keyword channel-id)] assoc :messages new-messages))
         (reset! changed true)
