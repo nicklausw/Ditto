@@ -1,8 +1,9 @@
 (ns ditto.core
   (:gen-class)
-  (:import [java.time Instant])
-  (:require [chime.core :as chime]
-            [cheshire.core :as cheshire]
+  (:import [java.time Instant]
+           [java.io FileNotFoundException])
+  (:require [cheshire.core :as cheshire]
+            [chime.core :as chime]
             [clj-http.client :as client]
             [clojure.core.async :refer [chan close!]]
             [clojure.pprint :refer [pprint]]
@@ -20,100 +21,62 @@
 
 (def changed (atom false))
 
-(def slurped-memory (cheshire/parse-string (slurp "memory.json") true))
+(def memory
+  (atom 
+   (-> (try 
+         (slurp "memory.json") 
+         (catch FileNotFoundException _ "{}"))
+       (cheshire/parse-string true)
+       :guilds)))
 
-; the bot can remember past conversations
-(def memory (atom (:memory slurped-memory)))
-
-; the bot can remember nicknames
-(def nicknames (atom (:nicknames slurped-memory)))
-
-; the bot has a different personality per guild
-(def personalities (atom (:personalities slurped-memory)))
-
-(defn vec-remove [f e] (vec (remove f e)))
-
-(defn empty-array-if-nil
-  [array]
-  (if (nil? array) [] array))
-
-(defn get-personality
-  "note: this returns the whole object.
-   { guild-id, personality, name }"
+(defn get-bot-name
   [guild-id]
-  (let [empty-if-nil (fn [name] (if (nil? name) {:guild-id guild-id :personality "" :name "Ditto"} name))]
-    (-> (some #(when (= (:guild-id %) guild-id) %) @personalities)
-         empty-if-nil)))
+  (-> @memory
+      ((keyword guild-id))
+      :bot_name
+      (or "Ditto")))
+
+(defn get-bot-personality
+  [guild-id]
+  (-> @memory
+      ((keyword guild-id))
+      :personality
+      (or "")))
+
+(defn get-user-nickname
+  [guild-id user-id]
+  (-> @memory
+      ((keyword guild-id))
+      :nicknames
+      ((keyword user-id))
+      (or "Person")))
+
+(defn get-messages
+  [guild-id channel-id]
+  (-> @memory
+      ((keyword guild-id))
+      ((keyword channel-id))
+      :messages
+      (or [])))
 
 (defn set-bot-prompt
-  [guild-id prompt]
-  (let [existing (get-personality guild-id)]
-    (reset!
-     personalities 
-     (conj (vec-remove #(= (:guild-id %) guild-id) @personalities) 
-           (assoc existing :personality prompt)))))
+  [guild-id prompt] 
+  (reset! memory (update-in @memory [(keyword guild-id)] assoc :personality prompt)))
 
 (defn set-bot-name
   [guild-id name]
-  (let [existing (get-personality guild-id)]
-    (reset!
-     personalities
-     (conj (vec-remove #(= (:guild-id %) guild-id) @personalities)
-           (assoc existing :name name)))))
-
-(defn get-user-nickname
-  [guild-id user-id] 
-  (let [person-if-nil (fn [name] (if (nil? name) "Person" name))]
-    (->> (some #(when (and (= (:guild-id %) guild-id) (= (:user-id %) user-id)) (:nickname %)) @nicknames) 
-         person-if-nil)))
+  (reset! memory (update-in @memory [(keyword guild-id)] assoc :bot_name name)))
 
 (defn set-user-nickname
   [guild-id user-id nickname]
-  (reset!
-   nicknames
-   (conj (vec-remove #(and (= guild-id (:guild-id %)) (= user-id (:user-id %))) @nicknames)
-         {:guild-id guild-id :user-id user-id :nickname nickname})))
+  (reset! memory (update-in @memory [(keyword guild-id) :nicknames] assoc (keyword user-id) nickname)))
 
 (defn append-new-message
   [old-messages new-message-user new-message-bot user-nickname bot-nickname]
   (let [new-list (into old-messages [(str user-nickname ": " new-message-user) (str bot-nickname ": " new-message-bot)])]
     (if (> (count new-list) 6)
-      (-> new-list
-          rest
-          rest
-          vec)
+      (-> new-list (nthrest 2) vec) 
       new-list)))
-
-(defn get-messages
-  [guild-id channel-id] 
-  (->> (some #(when (and (= (:guild-id %) guild-id) (= (:channel-id %) channel-id)) (:messages %)) @memory) 
-       empty-array-if-nil))
-
-(defn update-message-history
-  [guild-id
-   channel-id
-   old-messages
-   new-message-user
-   new-message-bot
-   user-nickname
-   bot-nickname]
-  (let [updated-messages (append-new-message old-messages new-message-user new-message-bot user-nickname bot-nickname)]
-    (reset!
-     memory
-     (conj (vec-remove #(and (= channel-id (:channel-id %)) (= guild-id (:guild-id %))) @memory) 
-           {:guild-id guild-id
-            :channel-id channel-id 
-            :messages updated-messages}))))
-
-(defn delete-message-history
-  [guild-id
-   channel-id]
-  (reset! 
-   memory 
-   (conj (vec-remove #(and (= channel-id (:channel-id %)) (= guild-id (:guild-id %))) @memory) 
-         {:guild-id guild-id
-          :channel-id channel-id
-          :messages []})))
 
 (defn messages-to-prompts
   [messages]
@@ -159,17 +122,17 @@
   (cond
     (str/starts-with? content "/gen")
     (let [trimmed-content (trim-left content "/gen")
-          personality-obj (get-personality guild-id)
-          bot-nickname (:name personality-obj)
-          personality (:personality personality-obj)
+          bot-nickname (get-bot-name guild-id)
+          personality (get-bot-personality guild-id)
           user-nickname (get-user-nickname guild-id (:id author))]
       (println "generating response for message...")
       (discord-rest/trigger-typing-indicator! (:rest @state) channel-id)
       (let [messages (get-messages guild-id channel-id)
-            bot-content (get-response trimmed-content messages user-nickname bot-nickname personality)]
+            bot-content (get-response trimmed-content messages user-nickname bot-nickname personality)
+            new-messages (append-new-message messages trimmed-content bot-content user-nickname bot-nickname)]
         (discord-rest/create-message! (:rest @state) channel-id
                                       :content (str (mention-user author) " " bot-content))
-        (update-message-history guild-id channel-id messages trimmed-content bot-content user-nickname bot-nickname)
+        (reset! memory (update-in @memory [(keyword guild-id) (keyword channel-id)] assoc :messages new-messages))
         (reset! changed true)
         (println "done.")))
 
@@ -197,7 +160,7 @@
 
     (= content "/reset")
     (do
-      (delete-message-history guild-id channel-id)
+      (reset! memory (update-in @memory [(keyword guild-id) (keyword channel-id)] assoc :messages []))
       (println "message history reset for channel " channel-id)
       (reset! changed true))))
 
@@ -226,9 +189,7 @@
   [time] 
   (when (true? @changed)
     (println (.toString time) ": Writing to memory.json")
-    (spit "memory.json" (cheshire/generate-string {:memory @memory
-                                                   :nicknames @nicknames
-                                                   :personalities @personalities} {:pretty true}))
+    (spit "memory.json" (cheshire/generate-string {:guilds @memory} {:pretty true}))
     (reset! changed false))
   (reset-timer))
 
