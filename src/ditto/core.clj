@@ -64,31 +64,31 @@
     :ditto (get-memory [guild-id :bot_name] "Ditto")
     :preset @preset-name))
 
+(defn set-bot-name
+  [guild-id name]
+  (set-memory [guild-id :bot_name] name))
+
 (defn get-bot-personality
   [guild-id]
   (case @mode
     :ditto (get-memory [guild-id :personality] "")
     :preset @preset-personality))
 
+(defn set-bot-personality
+  [guild-id personality]
+  (set-memory [guild-id :personality] personality))
+
 (defn get-user-nickname
   [guild-id user-id]
   (get-memory [guild-id :nicknames user-id] "Person"))
 
-(defn get-messages
-  [guild-id channel-id]
-  (get-memory [guild-id channel-id :messages] []))
-
-(defn set-bot-prompt
-  [guild-id prompt]
-  (set-memory [guild-id :personality] prompt))
-
-(defn set-bot-name
-  [guild-id name]
-  (set-memory [guild-id :bot_name] name))
-
 (defn set-user-nickname
   [guild-id user-id nickname]
   (set-memory [guild-id :nicknames user-id] nickname))
+
+(defn get-messages
+  [guild-id channel-id]
+  (get-memory [guild-id channel-id :messages] []))
 
 (defn append-new-message
   [old-messages new-message-user new-message-bot user-nickname bot-nickname]
@@ -173,7 +173,7 @@
     (and (str/starts-with? content "/personality ") (= @mode :ditto))
     (let [trimmed-content (str/trim (trim-left content "/personality "))]
       (println "setting bot personality to" trimmed-content "...")
-      (set-bot-prompt guild-id trimmed-content)
+      (set-bot-personality guild-id trimmed-content)
       (discord-rest/create-message! (:rest @state) channel-id
                                     :content (str (mention-user author) " My personality prompt is now " trimmed-content ".")))
 
