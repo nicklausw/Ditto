@@ -53,10 +53,9 @@
 
 (defn set-memory
   "Sets property in memory and resets changed switch to true."
-  [path-array new-value]
-  (let [new-path (mapv keyword path-array)]
-    (reset! memory (update-in @memory (butlast new-path) assoc (last new-path) new-value))
-    (reset! changed true)))
+  [path-array new-value] 
+  (reset! memory (assoc-in @memory (mapv keyword path-array) new-value)) 
+  (reset! changed true))
 
 (defn get-bot-name
   [guild-id]
