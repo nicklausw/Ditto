@@ -36,57 +36,59 @@
 
 (def memory
   (atom 
-   (-> (try 
-         (slurp "memory.json") 
-         (catch FileNotFoundException _ "{}"))
-       (cheshire/parse-string true)
-       :guilds)))
+   (or (some-> (try 
+                 (slurp "memory.json") 
+                 (catch FileNotFoundException _ nil)) 
+               (cheshire/parse-string true) 
+               :guilds)
+       {})))
+
+(defn get-memory
+  "Gets property from memory via array of nested keywords.
+   An alternative must be provided for if nothing is found.
+   NOTE: this converts non-keywords in the array to keywords."
+  [path-array alternative]
+  (-> (get-in @memory (mapv keyword path-array))
+    (or alternative)))
+
+(defn set-memory
+  "Sets property in memory and resets changed switch to true."
+  [path-array new-value]
+  (let [new-path (mapv keyword path-array)]
+    (reset! memory (update-in @memory (butlast new-path) assoc (last new-path) new-value))
+    (reset! changed true)))
 
 (defn get-bot-name
   [guild-id]
   (case @mode
-    :ditto (-> @memory
-               ((keyword guild-id))
-               :bot_name
-               (or "Ditto"))
+    :ditto (get-memory [guild-id :bot_name] "Ditto")
     :preset @preset-name))
 
 (defn get-bot-personality
   [guild-id]
   (case @mode
-    :ditto (-> @memory 
-               ((keyword guild-id)) 
-               :personality 
-               (or ""))
+    :ditto (get-memory [guild-id :personality] "")
     :preset @preset-personality))
 
 (defn get-user-nickname
   [guild-id user-id]
-  (-> @memory
-      ((keyword guild-id))
-      :nicknames
-      ((keyword user-id))
-      (or "Person")))
+  (get-memory [guild-id :nicknames user-id] "Person"))
 
 (defn get-messages
   [guild-id channel-id]
-  (-> @memory
-      ((keyword guild-id))
-      ((keyword channel-id))
-      :messages
-      (or [])))
+  (get-memory [guild-id channel-id :messages] []))
 
 (defn set-bot-prompt
-  [guild-id prompt] 
-  (reset! memory (update-in @memory [(keyword guild-id)] assoc :personality prompt)))
+  [guild-id prompt]
+  (set-memory [guild-id :personality] prompt))
 
 (defn set-bot-name
   [guild-id name]
-  (reset! memory (update-in @memory [(keyword guild-id)] assoc :bot_name name)))
+  (set-memory [guild-id :bot_name] name))
 
 (defn set-user-nickname
   [guild-id user-id nickname]
-  (reset! memory (update-in @memory [(keyword guild-id) :nicknames] assoc (keyword user-id) nickname)))
+  (set-memory [guild-id :nicknames user-id] nickname))
 
 (defn append-new-message
   [old-messages new-message-user new-message-bot user-nickname bot-nickname]
@@ -128,7 +130,7 @@
     (let [response (get-openai-response s messages user-nickname bot-nickname personality)]
       (if (= (:status response) 200)
         (let [body (cheshire/parse-string (:body response) true)]
-          (trim-newlines (:text (first (:choices body)))))
+          (str/trim (trim-newlines (:text (first (:choices body))))))
         error-message))
     (catch Exception e (pprint e) error-message)))
 
@@ -141,7 +143,7 @@
     (do
       (println "generating response for message...")
       (discord-rest/trigger-typing-indicator! (:rest @state) channel-id) 
-      (let [trimmed-content (trim-left content (str "/" @generation-command)) 
+      (let [trimmed-content (str/trim (trim-left content (str "/" @generation-command)))
             bot-nickname (get-bot-name guild-id) 
             personality (get-bot-personality guild-id) 
             user-nickname (get-user-nickname guild-id (:id author)) 
@@ -150,19 +152,18 @@
             new-messages (append-new-message messages trimmed-content bot-content user-nickname bot-nickname)] 
         (discord-rest/create-message! (:rest @state) channel-id 
                                       :content (str (mention-user author) " " bot-content))
-        (reset! memory (update-in @memory [(keyword guild-id) (keyword channel-id)] assoc :messages new-messages))
-        (reset! changed true)
+        (set-memory [guild-id channel-id :messages] new-messages)
         (println "done.")))
 
     (str/starts-with? content "/nickname ")
-    (let [trimmed-content (trim-left content "/nickname ")]
+    (let [trimmed-content (str/trim (trim-left content "/nickname "))]
       (println "setting nickname to" trimmed-content "...")
       (set-user-nickname guild-id (:id author) trimmed-content)
       (discord-rest/create-message! (:rest @state) channel-id
                                     :content (str (mention-user author) " Set name to " trimmed-content ".")))
 
     (and (str/starts-with? content "/botname ") (= @mode :ditto))
-    (let [trimmed-content (trim-left content "/botname ")]
+    (let [trimmed-content (str/trim (trim-left content "/botname "))]
       (println "setting bot nickname to" trimmed-content "...")
       (set-bot-name guild-id trimmed-content)
       (discord-rest/modify-current-user-nick! (:rest @state) guild-id trimmed-content)
@@ -170,7 +171,7 @@
                                     :content (str (mention-user author) " My name is now " trimmed-content ".")))
 
     (and (str/starts-with? content "/personality ") (= @mode :ditto))
-    (let [trimmed-content (trim-left content "/personality ")]
+    (let [trimmed-content (str/trim (trim-left content "/personality "))]
       (println "setting bot personality to" trimmed-content "...")
       (set-bot-prompt guild-id trimmed-content)
       (discord-rest/create-message! (:rest @state) channel-id
@@ -178,9 +179,8 @@
 
     (= content "/reset")
     (do
-      (reset! memory (update-in @memory [(keyword guild-id) (keyword channel-id)] assoc :messages []))
-      (println "message history reset for channel " channel-id)
-      (reset! changed true))))
+      (set-memory [guild-id channel-id :messages] [])
+      (println "message history reset for channel " channel-id))))
 
 (defmethod handle-event :default [_ _])
 
@@ -215,12 +215,11 @@
   (assert (= (count args) 2) "args: [ditto/preset] [discord token]")
   (case (first args)
     "ditto" (reset! mode :ditto)
-    "preset" (do
-               (let [config (cheshire/parse-string (slurp "preset-config.json") true)]
-                 (reset! preset-name (:name config))
-                 (reset! preset-personality (:personality config))
-                 (reset! generation-command (:command config))
-                 (reset! mode :preset)))
+    "preset" (let [config (cheshire/parse-string (slurp "preset-config.json") true)] 
+               (reset! preset-name (:name config)) 
+               (reset! preset-personality (:personality config)) 
+               (reset! generation-command (:command config)) 
+               (reset! mode :preset))
     (do
       (println "args: [ditto/preset] [discord token]")
       (System/exit 1)))
