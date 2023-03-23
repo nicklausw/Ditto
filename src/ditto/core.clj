@@ -1,7 +1,5 @@
 (ns ditto.core
   (:gen-class)
-  (:import [java.time Instant]
-           [java.io FileNotFoundException])
   (:require [cheshire.core :as cheshire]
             [chime.core :as chime]
             [clj-http.client :as client]
@@ -12,7 +10,10 @@
             [discljord.events :refer [message-pump!]]
             [discljord.formatting :refer [mention-user]]
             [discljord.messaging :as discord-rest]
-            [ditto.string :refer [slice-left slice-newlines]]))
+            [ditto.string :refer [slice-left slice-newlines]]
+            [ditto.utility :refer [third vec-append vec-prepend]])
+  (:import [java.io FileNotFoundException]
+           [java.time Instant]))
 
 ; you can be in ditto mode or preset mode
 ; where preset data is in preset-config.json
@@ -92,14 +93,6 @@
   [guild-id channel-id]
   (get-memory [guild-id channel-id :messages] []))
 
-(defn vec-prepend
-  [v item]
-  (into [item] v))
-
-(defn vec-append
-  [v item]
-  (into v [item]))
-
 (defn append-new-message
   "returns array with old messages listed. does not allow
    prompt-and-response message length to exceed 1000 characters,
@@ -134,7 +127,10 @@
                      (vec-prepend header)
                      (vec-append footer))
         processed (case @gpt-type
-                    :gpt3 (str (str/join "\n" (mapv :content messages)) "\n" bot-nickname ": ")
+                    ; OpenAI's gpt3 completions API wants one big string prompt
+                    :gpt3 (let [strings (mapv :content messages) 
+                                with-bot-name (conj strings (str bot-nickname ": "))] 
+                            (str/join "\n" with-bot-name))
                     :chatgpt messages)
         data (get-model-data processed)]
     (pprint processed)
@@ -252,8 +248,6 @@
 (defn print-args-and-quit []
   (println args-message)
   (System/exit 1))
-
-(defn third [x] (first (next (next x))))
 
 (defn -main [& args]
   (assert (= (count args) 3) args-message)
