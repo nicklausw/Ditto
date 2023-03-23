@@ -1,10 +1,12 @@
 # Ditto
-Discord bot that lets you make any personality you'd like out of GPT-3.
+Discord bot that lets you chat with GPT3 or ChatGPT.
 
 ## Usage
 ```
-lein run -- [ditto/preset] [discord token]
+lein run -- [ditto/preset] [gpt3/chatgpt] [discord token]
 ```
+`[gpt3/chatgpt]` decides which model you use, `text-davinci-003` or `gpt-3.5-turbo`.
+
 `ditto` mode works as you'd expect it.
 `preset` mode loads `preset-config.json` which should look like this:
 ```json

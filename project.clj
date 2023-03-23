@@ -1,5 +1,5 @@
 (defproject ditto "beta"
-  :description "GPT-3 Discord bot with any personality you like."
+  :description "GPT-3/ChatGPT Discord bot."
   :url "http://github.com/nicklausw/ditto"
   :license {:name "MIT"
             :url "https://opensource.org/licenses/MIT"}

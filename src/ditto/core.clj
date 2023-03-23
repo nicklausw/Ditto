@@ -12,7 +12,7 @@
             [discljord.events :refer [message-pump!]]
             [discljord.formatting :refer [mention-user]]
             [discljord.messaging :as discord-rest]
-            [ditto.string :refer [trim-left trim-newlines]]))
+            [ditto.string :refer [slice-left slice-newlines]]))
 
 ; you can be in ditto mode or preset mode
 ; where preset data is in preset-config.json
@@ -25,6 +25,9 @@
 (def mode (atom nil))
 (def preset-name (atom ""))
 (def preset-personality (atom ""))
+
+; :gpt3 or :chatgpt
+(def gpt-type (atom nil))
 
 (def generation-command (atom "gen"))
 
@@ -89,47 +92,81 @@
   [guild-id channel-id]
   (get-memory [guild-id channel-id :messages] []))
 
-(defn append-new-message
-  [old-messages new-message-user new-message-bot user-nickname bot-nickname]
-  (let [new-list (into old-messages [(str user-nickname ": " new-message-user) (str bot-nickname ": " new-message-bot)])]
-    (if (> (count new-list) 6)
-      (-> new-list (nthrest 2) vec) 
-      new-list)))
+(defn vec-prepend
+  [v item]
+  (into [item] v))
 
-(defn messages-to-prompts
-  [messages]
-  (loop [processed ""
-         unprocessed messages]
-    (if (= unprocessed [])
-      processed
-      (recur (str processed (first unprocessed) "\n") (rest unprocessed)))))
+(defn vec-append
+  [v item]
+  (into v [item]))
+
+(defn append-new-message
+  "returns array with old messages listed. does not allow
+   prompt-and-response message length to exceed 1000 characters,
+   even if this means a blank message history."
+  [old-messages new-message-user new-message-bot user-nickname bot-nickname]
+  (let [full-list (into old-messages [{:role "user" :content (str user-nickname ": " new-message-user)} 
+                                      {:role "assistant" :content (str bot-nickname ": " new-message-bot)}])]
+    (loop [list full-list]
+      (let [totals (mapv #(count (:content %)) list)
+            sum (reduce + totals)]
+        (if (>= sum 1000)
+          (recur (-> list rest vec))
+          list)))))
+
+(defn get-model-data
+  [messages-or-prompt]
+  (case @gpt-type
+    :gpt3 {:model "text-davinci-003"
+           :prompt messages-or-prompt
+           :temperature 0.9
+           :presence_penalty 0.5
+           :frequency_penalty 0.5
+           :max_tokens 1000}
+    :chatgpt {:model "gpt-3.5-turbo"
+              :messages messages-or-prompt}))
 
 (defn get-openai-response
-  [s messages user-nickname bot-nickname personality]
-  (let [prompt (str personality "\n" (messages-to-prompts messages) user-nickname ": " s "\n" bot-nickname ": ")]
-    (println "sending prompt " prompt)
+  [s old-messages user-nickname bot-nickname personality]
+  (let [header {:role "system" :content (str "Your name is " bot-nickname ".\n" personality)}
+        footer {:role "user" :content (str user-nickname ": " s)}
+        messages (-> old-messages
+                     (vec-prepend header)
+                     (vec-append footer))
+        processed (case @gpt-type
+                    :gpt3 (str (str/join "\n" (mapv :content messages)) "\n" bot-nickname ": ")
+                    :chatgpt messages)
+        data (get-model-data processed)]
+    (pprint processed)
+    (println "sending prompt ^")
     (client/post
-     "https://api.openai.com/v1/completions"
+     (case @gpt-type
+       :gpt3 "https://api.openai.com/v1/completions"
+       :chatgpt "https://api.openai.com/v1/chat/completions")
      {:headers {"Authorization" (str "Bearer " (System/getenv "OPENAI_TOKEN"))}
       :content-type :json
-      :form-params
-      {:model "text-davinci-003"
-       :prompt prompt
-       :temperature 0.9
-       :presence_penalty 0.5
-       :frequency_penalty 0.5
-       :max_tokens 1000}})))
+      :form-params data})))
 
 (def error-message
   "[The OpenAI server sent back an error. Please try again in a minute; the server may be busy.]")
+
+(defn trim-name
+  [s name]
+  (slice-left s (str name ": ")))
 
 (defn get-response
   [s messages user-nickname bot-nickname personality]
   (try
     (let [response (get-openai-response s messages user-nickname bot-nickname personality)]
       (if (= (:status response) 200)
-        (let [body (cheshire/parse-string (:body response) true)]
-          (str/trim (trim-newlines (:text (first (:choices body))))))
+        (let [body (cheshire/parse-string (:body response) true)
+              text (case @gpt-type
+                     :gpt3 (-> body :choices first :text)
+                     :chatgpt (-> body :choices first :message :content))]
+          (-> text
+              slice-newlines
+              str/trim
+              (trim-name bot-nickname)))
         error-message))
     (catch Exception e (pprint e) error-message)))
 
@@ -142,7 +179,7 @@
     (do
       (println "generating response for message...")
       (discord-rest/trigger-typing-indicator! (:rest @state) channel-id) 
-      (let [trimmed-content (str/trim (trim-left content (str "/" @generation-command)))
+      (let [trimmed-content (str/trim (slice-left content (str "/" @generation-command)))
             bot-nickname (get-bot-name guild-id) 
             personality (get-bot-personality guild-id) 
             user-nickname (get-user-nickname guild-id (:id author)) 
@@ -155,14 +192,14 @@
         (println "done.")))
 
     (str/starts-with? content "/nickname ")
-    (let [trimmed-content (str/trim (trim-left content "/nickname "))]
+    (let [trimmed-content (str/trim (slice-left content "/nickname "))]
       (println "setting nickname to" trimmed-content "...")
       (set-user-nickname guild-id (:id author) trimmed-content)
       (discord-rest/create-message! (:rest @state) channel-id
                                     :content (str (mention-user author) " Set name to " trimmed-content ".")))
 
     (and (str/starts-with? content "/botname ") (= @mode :ditto))
-    (let [trimmed-content (str/trim (trim-left content "/botname "))]
+    (let [trimmed-content (str/trim (slice-left content "/botname "))]
       (println "setting bot nickname to" trimmed-content "...")
       (set-bot-name guild-id trimmed-content)
       (discord-rest/modify-current-user-nick! (:rest @state) guild-id trimmed-content)
@@ -170,7 +207,7 @@
                                     :content (str (mention-user author) " My name is now " trimmed-content ".")))
 
     (and (str/starts-with? content "/personality ") (= @mode :ditto))
-    (let [trimmed-content (str/trim (trim-left content "/personality "))]
+    (let [trimmed-content (str/trim (slice-left content "/personality "))]
       (println "setting bot personality to" trimmed-content "...")
       (set-bot-personality guild-id trimmed-content)
       (discord-rest/create-message! (:rest @state) channel-id
@@ -210,8 +247,16 @@
     (reset! changed false))
   (reset-timer))
 
+(def args-message "args: [ditto/preset] [gpt3/chatgpt] [discord token]")
+
+(defn print-args-and-quit []
+  (println args-message)
+  (System/exit 1))
+
+(defn third [x] (first (next (next x))))
+
 (defn -main [& args]
-  (assert (= (count args) 2) "args: [ditto/preset] [discord token]")
+  (assert (= (count args) 3) args-message)
   (case (first args)
     "ditto" (reset! mode :ditto)
     "preset" (let [config (cheshire/parse-string (slurp "preset-config.json") true)] 
@@ -219,10 +264,12 @@
                (reset! preset-personality (:personality config)) 
                (reset! generation-command (:command config)) 
                (reset! mode :preset))
-    (do
-      (println "args: [ditto/preset] [discord token]")
-      (System/exit 1)))
-  (reset! state (start-bot! (second args) :guild-messages))
+    (print-args-and-quit))
+  (case (second args)
+    "gpt3" (reset! gpt-type :gpt3)
+    "chatgpt" (reset! gpt-type :chatgpt)
+    (print-args-and-quit))
+  (reset! state (start-bot! (third args) :guild-messages))
   (reset! bot-id (:id @(discord-rest/get-current-user! (:rest @state))))
   (reset-timer)
   (try

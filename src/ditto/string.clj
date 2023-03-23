@@ -16,8 +16,8 @@
     ""
     (subs s 0 (dec (count s)))))
 
-(defn trim-left
-  "trims l from left side of s.
+(defn slice-left
+  "slices l from left side of s.
    or if it's not on the left side, returns s."
   [s l]
   (if (false? (str/starts-with? s l))
@@ -27,7 +27,7 @@
         this
         (recur (str-rest this) (str-rest left))))))
 
-(defn trim-newlines
+(defn slice-newlines
   [s]
   (loop [this s]
     (cond
