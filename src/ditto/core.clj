@@ -243,14 +243,13 @@
     (reset! changed false))
   (reset-timer))
 
-(def args-message "args: [ditto/preset] [gpt3/chatgpt] [discord token]")
-
 (defn print-args-and-quit []
-  (println args-message)
+  (println "args: [ditto/preset] [gpt3/chatgpt] [discord token]")
   (System/exit 1))
 
 (defn -main [& args]
-  (assert (= (count args) 3) args-message)
+  (when (not= (count args) 3)
+    (print-args-and-quit))
   (case (first args)
     "ditto" (reset! mode :ditto)
     "preset" (let [config (cheshire/parse-string (slurp "preset-config.json") true)] 
