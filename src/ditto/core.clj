@@ -95,17 +95,17 @@
 
 (defn append-new-message
   "returns array with old messages listed. does not allow
-   prompt-and-response message length to exceed 1000 characters,
+   prompt-and-response message length to exceed 1200 characters,
    even if this means a blank message history."
   [old-messages new-message-user new-message-bot user-nickname bot-nickname]
   (let [full-list (into old-messages [{:role "user" :content (str user-nickname ": " new-message-user)} 
                                       {:role "assistant" :content (str bot-nickname ": " new-message-bot)}])]
-    (loop [list full-list]
-      (let [totals (mapv #(count (:content %)) list)
-            sum (reduce + totals)]
-        (if (>= sum 1000)
-          (recur (-> list rest vec))
-          list)))))
+    (loop [list full-list
+           totals (mapv #(count (:content %)) full-list)
+           sum (reduce + totals)]
+      (if (<= sum 1200)
+        (vec list)
+        (recur (rest list) (rest totals) (- sum (first totals)))))))
 
 (defn get-model-data
   [messages-or-prompt]
