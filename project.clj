@@ -1,4 +1,4 @@
-(defproject ditto "beta"
+(defproject ditto "1.0"
   :description "GPT-3/ChatGPT Discord bot."
   :url "http://github.com/nicklausw/ditto"
   :license {:name "MIT"
@@ -9,4 +9,5 @@
                  [cheshire "5.11.0"]
                  [jarohen/chime "0.3.3"]]
   :repl-options {:init-ns ditto.core}
-  :main ditto.core)
+  :main ditto.core
+  :profiles {:uberjar {:aot :all}})
