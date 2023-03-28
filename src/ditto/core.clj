@@ -170,55 +170,56 @@
 
 (defmethod handle-event :message-create
   [_ {:keys [guild-id channel-id author content] :as _data}]
-  (cond
-    (str/starts-with? content (str "/" @generation-command))
-    (do
-      (println "generating response for message...")
-      #_{:clj-kondo/ignore [:unresolved-var]}
-      (discord-rest/trigger-typing-indicator! (:rest @state) channel-id) 
-      (let [trimmed-content (str/trim (slice-left content (str "/" @generation-command)))
-            bot-nickname (get-bot-name guild-id) 
-            personality (get-bot-personality guild-id) 
-            user-nickname (get-user-nickname guild-id (:id author)) 
-            messages (get-messages guild-id channel-id)
-            bot-content (get-response trimmed-content messages user-nickname bot-nickname personality)
-            new-messages (append-new-message messages trimmed-content bot-content user-nickname bot-nickname)] 
+  (future
+    (cond
+      (str/starts-with? content (str "/" @generation-command))
+      (do
+        (println "generating response for message...")
         #_{:clj-kondo/ignore [:unresolved-var]}
-        (discord-rest/create-message! (:rest @state) channel-id 
-                                      :content (str (mention-user author) " " bot-content))
-        (set-memory [guild-id channel-id :messages] new-messages)
-        (println "done.")))
+        (discord-rest/trigger-typing-indicator! (:rest @state) channel-id) 
+        (let [trimmed-content (str/trim (slice-left content (str "/" @generation-command)))
+              bot-nickname (get-bot-name guild-id) 
+              personality (get-bot-personality guild-id) 
+              user-nickname (get-user-nickname guild-id (:id author)) 
+              messages (get-messages guild-id channel-id)
+              bot-content (get-response trimmed-content messages user-nickname bot-nickname personality)
+              new-messages (append-new-message messages trimmed-content bot-content user-nickname bot-nickname)] 
+          #_{:clj-kondo/ignore [:unresolved-var]}
+          (discord-rest/create-message! (:rest @state) channel-id 
+                                        :content (str (mention-user author) " " bot-content))
+          (set-memory [guild-id channel-id :messages] new-messages)
+          (println "done.")))
 
-    (str/starts-with? content "/nickname ")
-    (let [trimmed-content (str/trim (slice-left content "/nickname "))]
-      (println "setting nickname to" trimmed-content "...")
-      (set-user-nickname guild-id (:id author) trimmed-content)
-      #_{:clj-kondo/ignore [:unresolved-var]}
-      (discord-rest/create-message! (:rest @state) channel-id
+      (str/starts-with? content "/nickname ")
+      (let [trimmed-content (str/trim (slice-left content "/nickname "))]
+        (println "setting nickname to" trimmed-content "...")
+        (set-user-nickname guild-id (:id author) trimmed-content)
+        #_{:clj-kondo/ignore [:unresolved-var]}
+        (discord-rest/create-message! (:rest @state) channel-id
                                     :content (str (mention-user author) " Set name to " trimmed-content ".")))
 
-    (and (str/starts-with? content "/botname ") (= @mode :ditto))
-    (let [trimmed-content (str/trim (slice-left content "/botname "))]
-      (println "setting bot nickname to" trimmed-content "...")
-      (set-bot-name guild-id trimmed-content)
-      #_{:clj-kondo/ignore [:unresolved-var]}
-      (discord-rest/modify-current-user-nick! (:rest @state) guild-id trimmed-content)
-      #_{:clj-kondo/ignore [:unresolved-var]}
-      (discord-rest/create-message! (:rest @state) channel-id
+      (and (str/starts-with? content "/botname ") (= @mode :ditto))
+      (let [trimmed-content (str/trim (slice-left content "/botname "))]
+        (println "setting bot nickname to" trimmed-content "...")
+        (set-bot-name guild-id trimmed-content)
+        #_{:clj-kondo/ignore [:unresolved-var]}
+        (discord-rest/modify-current-user-nick! (:rest @state) guild-id trimmed-content)
+        #_{:clj-kondo/ignore [:unresolved-var]}
+        (discord-rest/create-message! (:rest @state) channel-id
                                     :content (str (mention-user author) " My name is now " trimmed-content ".")))
 
-    (and (str/starts-with? content "/personality ") (= @mode :ditto))
-    (let [trimmed-content (str/trim (slice-left content "/personality "))]
-      (println "setting bot personality to" trimmed-content "...")
-      (set-bot-personality guild-id trimmed-content)
-      #_{:clj-kondo/ignore [:unresolved-var]}
-      (discord-rest/create-message! (:rest @state) channel-id
-                                    :content (str (mention-user author) " My personality prompt is now " trimmed-content ".")))
+      (and (str/starts-with? content "/personality ") (= @mode :ditto))
+      (let [trimmed-content (str/trim (slice-left content "/personality "))]
+        (println "setting bot personality to" trimmed-content "...")
+        (set-bot-personality guild-id trimmed-content)
+        #_{:clj-kondo/ignore [:unresolved-var]}
+        (discord-rest/create-message! (:rest @state) channel-id
+                                      :content (str (mention-user author) " My personality prompt is now " trimmed-content ".")))
 
-    (= content "/reset")
-    (do
-      (set-memory [guild-id channel-id :messages] [])
-      (println "message history reset for channel " channel-id))))
+      (= content "/reset")
+      (do
+        (set-memory [guild-id channel-id :messages] [])
+        (println "message history reset for channel " channel-id)))))
 
 (defmethod handle-event :default [_ _])
 
