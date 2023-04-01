@@ -1,6 +1,6 @@
 (ns ditto.utility)
 
-(defn third [x] (first (next (next x))))
+(defn third [x] (-> x next next first))
 
 (defn vec-prepend
   [v item]
