@@ -10,10 +10,19 @@
             [discljord.events :refer [message-pump!]]
             [discljord.formatting :refer [mention-user]]
             [discljord.messaging :as discord-rest]
-            [ditto.string :refer [slice-left slice-newlines]]
-            [ditto.utility :refer [third vec-append vec-prepend]])
+            [ditto.string :refer [slice-left slice-newlines]])
   (:import [java.io FileNotFoundException]
            [java.time Instant]))
+
+; util
+(defn third [x] (-> x next next first))
+(defn append
+  "add single item to end of linked list, since both
+   cons and conj like to add to start of them.
+   I've found this is faster than converting
+   to a vector and using conj."
+  [l x]
+  (concat l (list x)))
 
 ; you can be in ditto mode or preset mode
 ; where preset data is in preset-config.json
@@ -52,13 +61,13 @@
    An alternative must be provided for if nothing is found.
    NOTE: this converts non-keywords in the array to keywords."
   [path-array alternative]
-  (-> (get-in @memory (mapv keyword path-array))
+  (-> (get-in @memory (map keyword path-array))
     (or alternative)))
 
 (defn set-memory
   "Sets property in memory and resets changed switch to true."
   [path-array new-value] 
-  (reset! memory (assoc-in @memory (mapv keyword path-array) new-value)) 
+  (reset! memory (assoc-in @memory (map keyword path-array) new-value)) 
   (reset! changed true))
 
 (defn get-bot-name
@@ -94,17 +103,18 @@
   (get-memory [guild-id channel-id :messages] []))
 
 (defn append-new-message
-  "returns array with old messages listed. does not allow
-   prompt-and-response message length to exceed 1200 characters,
+  "returns list of old messages. does not allow
+   prompt-and-response message length to exceed 2000 characters,
    even if this means a blank message history."
   [old-messages new-message-user new-message-bot user-nickname bot-nickname]
-  (let [full-list (into old-messages [{:role "user" :content (str user-nickname ": " new-message-user)} 
-                                      {:role "assistant" :content (str bot-nickname ": " new-message-bot)}])]
+  (let [full-list (concat old-messages
+                          (list {:role "user" :content (str user-nickname ": " new-message-user)} 
+                                {:role "assistant" :content (str bot-nickname ": " new-message-bot)}))]
     (loop [list full-list
-           totals (mapv #(count (:content %)) full-list)
+           totals (map #(count (:content %)) full-list)
            sum (reduce + totals)]
-      (if (<= sum 1200)
-        (vec list)
+      (if (<= sum 2000)
+        list
         (recur (rest list) (rest totals) (- sum (first totals)))))))
 
 (defn get-model-data
@@ -123,13 +133,13 @@
   [s old-messages user-nickname bot-nickname personality]
   (let [header {:role "system" :content (str "Your name is " bot-nickname ".\n" personality)}
         footer {:role "user" :content (str user-nickname ": " s)}
-        messages (-> old-messages
-                     (vec-prepend header)
-                     (vec-append footer))
+        messages (as-> old-messages x
+                   (cons header x) 
+                   (append x footer))
         processed (case @gpt-type
                     ; OpenAI's gpt3 completions API wants one big string prompt
-                    :gpt3 (let [strings (mapv :content messages) 
-                                with-bot-name (conj strings (str bot-nickname ": "))] 
+                    :gpt3 (let [strings (map :content messages) 
+                                with-bot-name (append strings (str bot-nickname ": "))] 
                             (str/join "\n" with-bot-name))
                     :chatgpt messages)
         data (get-model-data processed)]
