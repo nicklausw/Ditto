@@ -20,12 +20,9 @@
   "slices l from left side of s.
    or if it's not on the left side, returns s."
   [s l]
-  (if (false? (str/starts-with? s l))
+  (if-not (str/starts-with? s l)
     s
-    (loop [this s left l]
-      (if (= left "")
-        this
-        (recur (str-rest this) (str-rest left))))))
+    (subs s (count l))))
 
 (defn slice-newlines
   [s]
